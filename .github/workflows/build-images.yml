@@ -2,6 +2,9 @@ name: Build and push Docker images to DockerHub
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - '*'
 
 permissions: read-all
 
