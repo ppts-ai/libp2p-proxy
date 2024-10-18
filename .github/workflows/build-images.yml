@@ -38,6 +38,6 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          tags: jasonhao123/libp2p-proxy:${GITHUB_SHA}
+          tags: libp2p-proxy:${GITHUB_SHA}
           push: true
 
