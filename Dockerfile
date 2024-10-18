@@ -12,7 +12,7 @@ RUN go mod download
 COPY . .
 
 # Build the Go binary
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ./dist/libp2p-proxy ./cmd/libp2p-proxy
+RUN CGO_ENABLED=0 GOOS=linux go build -o ./dist/libp2p-proxy ./cmd/libp2p-proxy
 
 # Stage 2: Create the clean and slim base image
 FROM alpine:3.18
