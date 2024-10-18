@@ -24,5 +24,7 @@ RUN apk --no-cache add ca-certificates
 COPY --from=builder /app/dist/libp2p-proxy /usr/local/bin/libp2p-proxy
 RUN chmod 777 /usr/local/bin/libp2p-proxy
 
+EXPOSE 4001
+
 # Set the binary as the entry point
 ENTRYPOINT ["/usr/local/bin/libp2p-proxy"]
