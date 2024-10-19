@@ -22,10 +22,11 @@ RUN apk --no-cache add ca-certificates
 
 # Copy the compiled binary from the builder stage
 COPY --from=builder /app/dist/libp2p-proxy /usr/local/bin/libp2p-proxy
+COPY --from=builder /app/config/config_sample_client.yaml /etc/libp2p-config.yaml
 RUN chmod 777 /usr/local/bin/libp2p-proxy
 
 EXPOSE 4001
 EXPOSE 1082
 
 # Set the binary as the entry point
-ENTRYPOINT ["/usr/local/bin/libp2p-proxy"]
+ENTRYPOINT ["/usr/local/bin/libp2p-proxy", "--config", "/etc/libp2p-config.yaml"]
