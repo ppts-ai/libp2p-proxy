@@ -286,59 +286,57 @@ func main() {
 		}
 
 		fmt.Printf("Peer ID: %s\n", host.ID())
-		serverPeer := &peer.AddrInfo{ID: host.ID()}
-		if cfg.Proxy.ServerPeer != "" {
-			serverPeer1, err := peer.AddrInfoFromString(cfg.Proxy.ServerPeer)
-			if err != nil {
-				protocol.Log.Fatal(err)
-			}
 
-			// Now create a new address for unreachable2 that specifies to communicate via
-			// relay1 using a circuit relay
-			serverPeer, err := ma.NewMultiaddr("/p2p/" + relay1info.ID.String() + "/p2p-circuit/p2p/" + serverPeer1.ID.String())
-			if err != nil {
-				log.Println(err)
-				return
-			} else {
-				log.Println(serverPeer)
-			}
-
-			// Since we just tried and failed to dial, the dialer system will, by default
-			// prevent us from redialing again so quickly. Since we know what we're doing, we
-			// can use this ugly hack (it's on our TODO list to make it a little cleaner)
-			// to tell the dialer "no, its okay, let's try this again"
-			host.Network().(*swarm.Swarm).Backoff().Clear(serverPeer1.ID)
-
-			log.Println("Now let's attempt to connect the hosts via the relay node")
-
-			// Open a connection to the previously unreachable host via the relay address
-			unreachable2relayinfo := peer.AddrInfo{
-				ID:    serverPeer1.ID,
-				Addrs: []ma.Multiaddr{serverPeer},
-			}
-			// host.Peerstore().AddAddrs(serverPeer.ID, serverPeer.Addrs, peerstore.PermanentAddrTTL)
-			ctxt, cancel := context.WithTimeout(ctx, time.Second*5)
-
-			if err := host.Connect(context.Background(), unreachable2relayinfo); err != nil {
-				log.Printf("Unexpected error here. Failed to connect unreachable1 and unreachable2: %v", err)
-				return
-			}
-
-			log.Println("Yep, that worked!")
-
-			res := <-ping.Ping(ctxt, host, serverPeer1.ID)
-			if res.Error != nil {
-				protocol.Log.Fatalf("ping error: %v", res.Error)
-			} else {
-				protocol.Log.Infof("ping RTT: %s", res.RTT)
-			}
-			cancel()
-			host.ConnManager().Protect(serverPeer1.ID, "proxy")
+		serverPeer1, err := peer.AddrInfoFromString(cfg.Proxy.ServerPeer)
+		if err != nil {
+			protocol.Log.Fatal(err)
 		}
+
+		// Now create a new address for unreachable2 that specifies to communicate via
+		// relay1 using a circuit relay
+		serverPeer, err := ma.NewMultiaddr("/p2p/" + relay1info.ID.String() + "/p2p-circuit/p2p/" + serverPeer1.ID.String())
+		if err != nil {
+			log.Println(err)
+			return
+		} else {
+			log.Println(serverPeer)
+		}
+
+		// Since we just tried and failed to dial, the dialer system will, by default
+		// prevent us from redialing again so quickly. Since we know what we're doing, we
+		// can use this ugly hack (it's on our TODO list to make it a little cleaner)
+		// to tell the dialer "no, its okay, let's try this again"
+		host.Network().(*swarm.Swarm).Backoff().Clear(serverPeer1.ID)
+
+		log.Println("Now let's attempt to connect the hosts via the relay node")
+
+		// Open a connection to the previously unreachable host via the relay address
+		unreachable2relayinfo := peer.AddrInfo{
+			ID:    serverPeer1.ID,
+			Addrs: []ma.Multiaddr{serverPeer},
+		}
+		// host.Peerstore().AddAddrs(serverPeer.ID, serverPeer.Addrs, peerstore.PermanentAddrTTL)
+		ctxt, cancel := context.WithTimeout(ctx, time.Second*5)
+
+		if err := host.Connect(context.Background(), unreachable2relayinfo); err != nil {
+			log.Printf("Unexpected error here. Failed to connect unreachable1 and unreachable2: %v", err)
+			return
+		}
+
+		log.Println("Yep, that worked!")
+
+		res := <-ping.Ping(ctxt, host, serverPeer1.ID)
+		if res.Error != nil {
+			protocol.Log.Fatalf("ping error: %v", res.Error)
+		} else {
+			protocol.Log.Infof("ping RTT: %s", res.RTT)
+		}
+		cancel()
+		host.ConnManager().Protect(serverPeer1.ID, "proxy")
 
 		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost)
 		fmt.Printf("Proxy Address: %s\n", cfg.Proxy.Addr)
-		if err := proxy.Serve(cfg.Proxy.Addr, serverPeer.ID); err != nil {
+		if err := proxy.Serve(cfg.Proxy.Addr, serverPeer1.ID); err != nil {
 			protocol.Log.Fatal(err)
 		}
 	}
