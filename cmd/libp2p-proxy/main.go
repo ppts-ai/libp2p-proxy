@@ -19,6 +19,7 @@ import (
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p-peerstore/pstoreds"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/routing"
 	"github.com/libp2p/go-libp2p/p2p/net/swarm"
@@ -287,6 +288,25 @@ func main() {
 
 		fmt.Printf("Peer ID: %s\n", host.ID())
 
+		// Register a connection notification handler
+		host.Network().Notify(&network.NotifyBundle{
+			ConnectedF: func(n network.Network, conn network.Conn) {
+				addr := conn.RemoteMultiaddr()
+
+				if addr.String() == "" {
+					fmt.Println("No multiaddr found for connection.")
+					return
+				}
+
+				// Check if the connection is using a relay
+				if isRelayConnection(addr.String()) {
+					fmt.Printf("Connected via relay: %s\n", addr)
+				} else {
+					fmt.Printf("Direct P2P connection: %s\n", addr)
+				}
+			},
+		})
+
 		serverPeer1, err := peer.AddrInfoFromString(cfg.Proxy.ServerPeer)
 		if err != nil {
 			protocol.Log.Fatal(err)
@@ -382,4 +402,14 @@ func (s static) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer protocol.Log.Infof("serve file: %s", name)
 	http.ServeFile(w, r, name)
+}
+
+// Helper function to check if the multiaddr uses a relay
+func isRelayConnection(multiaddr string) bool {
+	return contains(multiaddr, "/p2p-circuit")
+}
+
+// Helper function to check if a string contains a substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (len(substr) == 0 || (s != "" && (s[0:len(substr)] == substr || contains(s[1:], substr))))
 }
