@@ -28,6 +28,27 @@ func (p *ProxyService) Serve(proxyAddr string, remotePeer peer.ID) error {
 	}
 }
 
+func (p *ProxyService) ServeSsh(proxyAddr string, remotePeer peer.ID) error {
+	ln, err := net.Listen("tcp", proxyAddr)
+	if err != nil {
+		return err
+	}
+
+	go p.Wait(ln.Close)
+
+	for {
+		conn, err := ln.Accept()
+		if err := p.ctx.Err(); err != nil {
+			return err
+		}
+
+		if err != nil {
+			return err
+		}
+		go p.sideHandlerSsh(conn, remotePeer)
+	}
+}
+
 func (p *ProxyService) sideHandler(conn net.Conn, remotePeer peer.ID) {
 	defer conn.Close()
 
@@ -38,6 +59,27 @@ func (p *ProxyService) sideHandler(conn net.Conn, remotePeer peer.ID) {
 	}
 
 	s, err := p.host.NewStream(network.WithAllowLimitedConn(p.ctx, "/p2pdao/libp2p-proxy/1.0.0"), remotePeer, ID)
+	if err != nil {
+		Log.Errorf("creating stream to %s error: %v", remotePeer, err)
+		return
+	}
+
+	defer s.Close()
+	if err := tunneling(s, conn); shouldLogError(err) {
+		Log.Warn(err)
+	}
+}
+
+func (p *ProxyService) sideHandlerSsh(conn net.Conn, remotePeer peer.ID) {
+	defer conn.Close()
+
+	// standalone mode
+	if remotePeer == p.host.ID() {
+		p.handler(NewBufReaderStream(conn))
+		return
+	}
+
+	s, err := p.host.NewStream(network.WithAllowLimitedConn(p.ctx, "/p2pdao/libp2p-ssh/1.0.0"), remotePeer, SSH_ID)
 	if err != nil {
 		Log.Errorf("creating stream to %s error: %v", remotePeer, err)
 		return

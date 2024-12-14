@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
+	"net"
 	"net/http"
 	"strings"
 	"syscall"
@@ -17,9 +19,11 @@ import (
 )
 
 const (
-	P2PHttpID   protocol.ID = "/http"
-	ID          protocol.ID = "/p2pdao/libp2p-proxy/1.0.0"
-	ServiceName string      = "p2pdao.libp2p-proxy"
+	P2PHttpID        protocol.ID = "/http"
+	ID               protocol.ID = "/p2pdao/libp2p-proxy/1.0.0"
+	SSH_ID           protocol.ID = "/p2pdao/libp2p-ssh/1.0.0"
+	ServiceName      string      = "p2pdao.libp2p-proxy"
+	sshServerAddress             = "127.0.0.1:22" // Address of the real SSH server
 )
 
 var Log = logging.Logger("libp2p-proxy")
@@ -34,6 +38,7 @@ type ProxyService struct {
 func NewProxyService(ctx context.Context, h host.Host, p2pHost string) *ProxyService {
 	ps := &ProxyService{ctx, h, nil, p2pHost}
 	h.SetStreamHandler(ID, ps.Handler)
+	h.SetStreamHandler(SSH_ID, ps.Ssh_Handler)
 	return ps
 }
 
@@ -71,38 +76,39 @@ func (p *ProxyService) Handler(s network.Stream) {
 	p.handler(NewBufReaderStream(s))
 }
 
+func (p *ProxyService) Ssh_Handler(stream network.Stream) {
+	defer stream.Close()
+
+	// Connect to the real SSH server
+	sshConn, err := net.Dial("tcp", sshServerAddress)
+	if err != nil {
+		log.Printf("Failed to connect to SSH server: %v", err)
+		return
+	}
+	defer sshConn.Close()
+
+	// Bidirectional copy between libp2p stream and SSH server
+	go io.Copy(sshConn, stream)
+	io.Copy(stream, sshConn)
+}
+
 func (p *ProxyService) handler(bs *BufReaderStream) {
 	defer bs.Close()
 
-	_, cancel := context.WithCancel(p.ctx)
-	defer cancel()
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-
-		b, err := bs.Reader.Peek(1)
-		if err != nil {
-			if err == io.EOF {
-				return
-			}
-			Log.Errorf("read stream error: %s", err)
-			bs.Reset()
+	b, err := bs.Reader.Peek(1)
+	if err != nil {
+		if err == io.EOF {
 			return
 		}
+		Log.Errorf("read stream error: %s", err)
+		bs.Reset()
+		return
+	}
 
-		if IsSocks5(b[0]) {
-			p.socks5Handler(bs)
-		} else {
-			p.httpHandler(bs)
-		}
-	}()
-
-	select {
-	case <-p.ctx.Done(): // Context canceled
-		Log.Warn("Handler interrupted due to service shutdown")
-		bs.Reset() // Reset the stream to ensure proper cleanup
-	case <-done: // Handler completed
+	if IsSocks5(b[0]) {
+		p.socks5Handler(bs)
+	} else {
+		p.httpHandler(bs)
 	}
 }
 

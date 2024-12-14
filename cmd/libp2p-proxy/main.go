@@ -356,7 +356,12 @@ func main() {
 
 		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost)
 		fmt.Printf("Proxy Address: %s\n", cfg.Proxy.Addr)
-		if err := proxy.Serve(cfg.Proxy.Addr, serverPeer1.ID); err != nil {
+		go func() {
+			if err := proxy.Serve(cfg.Proxy.Addr, serverPeer1.ID); err != nil {
+				protocol.Log.Fatal(err)
+			}
+		}()
+		if err := proxy.ServeSsh("0.0.0.0:2222", serverPeer1.ID); err != nil {
 			protocol.Log.Fatal(err)
 		}
 	}
