@@ -1,5 +1,6 @@
-peer_key: "CAESQLcvtmSITUktckPrPSOQuTSPjTBBO7/FW3m5N1qnTfBv9ilHJ7GknXc/AKLaiekjqlm/STh97MDPTV8nkl4aRfM="
+peer_key: "CAESQE25a0+Z9TbPJintcePkLOotXWfisiZ5W9AKry+4FYSrfikBAUuwS+crexXLR+dDpQ16/k8TTRqhiAmPt894PrI="
 network:
+  enable_nat: true
   listen_addrs:
     - "/ip4/0.0.0.0/udp/11211/quic"
     - "/ip6/::/udp/11211/quic"

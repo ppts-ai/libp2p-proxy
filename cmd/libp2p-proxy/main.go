@@ -13,15 +13,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ipfs/go-datastore"
-	leveldb "github.com/ipfs/go-ds-leveldb"
 	"github.com/libp2p/go-libp2p"
-	dht "github.com/libp2p/go-libp2p-kad-dht"
-	"github.com/libp2p/go-libp2p-peerstore/pstoreds"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/libp2p/go-libp2p/core/routing"
 	"github.com/libp2p/go-libp2p/p2p/net/swarm"
 	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
@@ -114,8 +109,7 @@ func main() {
 		libp2p.Identity(privk),
 		libp2p.UserAgent(protocol.ServiceName),
 		libp2p.EnableRelay(),
-		libp2p.EnableHolePunching(),
-		libp2p.WithDialTimeout(time.Second * 60),
+		libp2p.NoListenAddrs,
 	}
 
 	// if len(cfg.Network.Relays) > 0 {
@@ -139,53 +133,8 @@ func main() {
 	}
 	opts = append(opts, libp2p.ConnectionGater(acl))
 
-	if cfg.Proxy == nil || cfg.Proxy.ServerPeer == "" {
-		// run DHT client for server side
-		var ds datastore.Batching
-		if cfg.DHT.DatastorePath != "" {
-			ds, err = leveldb.NewDatastore(cfg.DHT.DatastorePath, nil)
-			if err != nil {
-				protocol.Log.Fatal(err)
-			}
-		}
-		if ds != nil {
-			pds, err := pstoreds.NewPeerstore(ctx, ds, pstoreds.DefaultOpts())
-			if err != nil {
-				protocol.Log.Fatal(err)
-			}
-			opts = append(opts, libp2p.Peerstore(pds))
-		}
-
-		opts = append(opts,
-			libp2p.Routing(func(h host.Host) (routing.PeerRouting, error) {
-				dhtpeers := dht.GetDefaultBootstrapPeerAddrInfos()
-				if len(cfg.DHT.BootstrapPeers) > 0 {
-					for _, s := range cfg.DHT.BootstrapPeers {
-						if peer, err := peer.AddrInfoFromString(s); err == nil {
-							dhtpeers = append(dhtpeers, *peer)
-						}
-					}
-				}
-
-				dhtopts := []dht.Option{
-					dht.Mode(dht.ModeClient),
-					dht.BootstrapPeers(dhtpeers...),
-				}
-				if ds != nil {
-					dhtopts = append(dhtopts, dht.Datastore(ds))
-				}
-
-				idht, err := dht.New(ctx, h, dhtopts...)
-				if err == nil {
-					idht.Bootstrap(ctx)
-				}
-				return idht, err
-			}),
-		)
-	}
-
 	// The multiaddress string
-	multiAddrStr := "/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
+	multiAddrStr := "/ip4/64.176.227.5/tcp/11212/ws/p2p/12D3KooWSPGy9bCrTRF5Nwsb3B6CQsZ9VGvEGPJ6ZT2ZWWCTXR3p"
 
 	// Parse the multiaddress
 	multiAddr, err := multiaddr.NewMultiaddr(multiAddrStr)
@@ -200,9 +149,6 @@ func main() {
 	}
 
 	if cfg.Proxy == nil {
-		opts = append(opts,
-			libp2p.ListenAddrStrings(cfg.Network.ListenAddrs...),
-		)
 
 		if cfg.Network.EnableNAT {
 			opts = append(opts,
@@ -211,82 +157,10 @@ func main() {
 			)
 		}
 
-		if len(cfg.Network.ExternalAddrs) > 0 {
-			emas := make([]ma.Multiaddr, 0, len(cfg.Network.ExternalAddrs))
-			for _, ad := range cfg.Network.ExternalAddrs {
-				if addr, err := ma.NewMultiaddr(ad); err == nil {
-					emas = append(emas, addr)
-				}
-			}
-
-			if len(emas) > 0 {
-				opts = append(opts,
-					libp2p.ForceReachabilityPublic(),
-					libp2p.AddrsFactory(func(_ []ma.Multiaddr) []ma.Multiaddr {
-						return emas
-					}),
-				)
-			}
-		}
-
 		host, err := libp2p.New(opts...)
 		if err != nil {
 			protocol.Log.Fatal(err)
 		}
-
-		// Connect both unreachable1 and unreachable2 to relay1
-		if err := host.Connect(context.Background(), *relay1info); err != nil {
-			log.Printf("Failed to connect unreachable1 and relay1: %v", err)
-			return
-		}
-
-		fmt.Printf("Peer ID: %s\n", host.ID())
-		fmt.Printf("Peer Addresses:\n")
-		for _, addr := range host.Addrs() {
-			fmt.Printf("\t%s/p2p/%s\n", addr, host.ID())
-		}
-
-		ping.NewPingService(host)
-		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost)
-
-		// Hosts that want to have messages relayed on their behalf need to reserve a slot
-		// with the circuit relay service host
-		// As we will open a stream to unreachable2, unreachable2 needs to make the
-		// reservation
-		_, err = client.Reserve(context.Background(), host, *relay1info)
-		if err != nil {
-			log.Printf("unreachable2 failed to receive a relay reservation from relay1. %v", err)
-			return
-		}
-
-		if cfg.ServePath != "" {
-			ss := newStatic(cfg.ServePath)
-			fmt.Printf("Serve HTTP static: %s\n", ss)
-			if err := proxy.ServeHTTP(ss, nil); err != nil {
-				protocol.Log.Fatal(err)
-			}
-		} else {
-			if err := proxy.Wait(nil); err != nil {
-				protocol.Log.Fatal(err)
-			}
-		}
-
-	} else {
-		opts = append(opts,
-			libp2p.NoListenAddrs,
-		)
-		host, err := libp2p.New(opts...)
-		if err != nil {
-			protocol.Log.Fatal(err)
-		}
-
-		// Connect both unreachable1 and unreachable2 to relay1
-		if err := host.Connect(context.Background(), *relay1info); err != nil {
-			log.Printf("Failed to connect unreachable1 and relay1: %v", err)
-			return
-		}
-
-		fmt.Printf("Peer ID: %s\n", host.ID())
 
 		// Register a connection notification handler
 		host.Network().Notify(&network.NotifyBundle{
@@ -305,12 +179,95 @@ func main() {
 					fmt.Printf("Direct P2P connection: %s\n", addr)
 				}
 			},
+			DisconnectedF: func(_ network.Network, conn network.Conn) {
+				if conn.RemotePeer() == relay1info.ID {
+					fmt.Println("Lost connection to relay. Reconnecting...")
+					go reconnectToRelay(host, relay1info, relay1info.ID)
+				}
+			},
 		})
+
+		// Connect both unreachable1 and unreachable2 to relay1
+		if err := host.Connect(ctx, *relay1info); err != nil {
+			log.Printf("Failed to connect unreachable1 and relay1: %v", err)
+			return
+		}
+
+		fmt.Printf("Peer ID: %s\n", host.ID())
+		fmt.Printf("Peer Addresses:\n")
+		for _, addr := range host.Addrs() {
+			fmt.Printf("\t%s/p2p/%s\n", addr, host.ID())
+		}
+
+		ping.NewPingService(host)
+		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost)
+
+		// Hosts that want to have messages relayed on their behalf need to reserve a slot
+		// with the circuit relay service host
+		// As we will open a stream to unreachable2, unreachable2 needs to make the
+		// reservation
+		_, err = client.Reserve(ctx, host, *relay1info)
+		if err != nil {
+			log.Printf("unreachable2 failed to receive a relay reservation from relay1. %v", err)
+			return
+		}
+
+		if cfg.ServePath != "" {
+			ss := newStatic(cfg.ServePath)
+			fmt.Printf("Serve HTTP static: %s\n", ss)
+			if err := proxy.ServeHTTP(ss, nil); err != nil {
+				protocol.Log.Fatal(err)
+			}
+		} else {
+			if err := proxy.Wait(nil); err != nil {
+				protocol.Log.Fatal(err)
+			}
+		}
+
+	} else {
+
+		host, err := libp2p.New(opts...)
+		if err != nil {
+			protocol.Log.Fatal(err)
+		}
 
 		serverPeer1, err := peer.AddrInfoFromString(cfg.Proxy.ServerPeer)
 		if err != nil {
 			protocol.Log.Fatal(err)
 		}
+
+		// Register a connection notification handler
+		host.Network().Notify(&network.NotifyBundle{
+			ConnectedF: func(n network.Network, conn network.Conn) {
+				addr := conn.RemoteMultiaddr()
+
+				if addr.String() == "" {
+					fmt.Println("No multiaddr found for connection.")
+					return
+				}
+
+				// Check if the connection is using a relay
+				if isRelayConnection(addr.String()) {
+					fmt.Printf("Connected via relay: %s\n", addr)
+				} else {
+					fmt.Printf("Direct P2P connection: %s\n", addr)
+				}
+			},
+			DisconnectedF: func(_ network.Network, conn network.Conn) {
+				if conn.RemotePeer() == relay1info.ID {
+					fmt.Println("Lost connection to relay. Reconnecting...")
+					go reconnectToRelay(host, relay1info, serverPeer1.ID)
+				}
+			},
+		})
+
+		// Connect both unreachable1 and unreachable2 to relay1
+		if err := host.Connect(context.Background(), *relay1info); err != nil {
+			log.Printf("Failed to connect unreachable1 and relay1: %v", err)
+			return
+		}
+
+		fmt.Printf("Peer ID: %s\n", host.ID())
 
 		// Now create a new address for unreachable2 that specifies to communicate via
 		// relay1 using a circuit relay
@@ -417,4 +374,21 @@ func isRelayConnection(multiaddr string) bool {
 // Helper function to check if a string contains a substring
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (len(substr) == 0 || (s != "" && (s[0:len(substr)] == substr || contains(s[1:], substr))))
+}
+
+func reconnectToRelay(host host.Host, relayInfo *peer.AddrInfo, peer peer.ID) {
+	for {
+		host.Network().(*swarm.Swarm).Backoff().Clear(peer)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		err := host.Connect(ctx, *relayInfo)
+		if err == nil {
+			fmt.Println("Reconnected to relay.")
+			return
+		}
+
+		fmt.Printf("Retrying connection to relay: %v\n", err)
+		time.Sleep(5 * time.Second) // Retry delay
+	}
 }
