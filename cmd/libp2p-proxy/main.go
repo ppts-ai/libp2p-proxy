@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,12 +18,9 @@ import (
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p-peerstore/pstoreds"
 	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/routing"
-	"github.com/libp2p/go-libp2p/p2p/net/swarm"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
-	"github.com/multiformats/go-multiaddr"
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/p2pdao/libp2p-proxy/config"
@@ -117,19 +113,20 @@ func main() {
 		libp2p.WithDialTimeout(time.Second * 60),
 	}
 
-	if len(cfg.Network.Relays) > 0 {
-		relays := make([]peer.AddrInfo, 0, len(cfg.Network.Relays))
-		for _, addr := range cfg.Network.Relays {
-			pi, err := peer.AddrInfoFromString(addr)
-			if err != nil {
-				protocol.Log.Fatal(fmt.Sprintf("failed to initialize default static relays: %s", err))
-			}
-			relays = append(relays, *pi)
-		}
-		opts = append(opts,
-			libp2p.EnableAutoRelayWithStaticRelays(relays),
-		)
-	}
+	// if len(cfg.Network.Relays) > 0 {
+	// 	relays := make([]peer.AddrInfo, 0, len(cfg.Network.Relays))
+	// 	for _, addr := range cfg.Network.Relays {
+	// 		pi, err := peer.AddrInfoFromString(addr)
+	// 		if err != nil {
+	// 			protocol.Log.Fatal(fmt.Sprintf("failed to initialize default static relays: %s", err))
+	// 		}
+	// 		relays = append(relays, *pi)
+	// 	}
+	// 	opts = append(opts,
+	// 		libp2p.EnableAutoRelay(),
+	// 		libp2p.StaticRelays(relays),
+	// 	)
+	// }
 
 	acl, err := protocol.NewACL(cfg.ACL)
 	if err != nil {
@@ -182,21 +179,6 @@ func main() {
 		)
 	}
 
-	// The multiaddress string
-	multiAddrStr := cfg.Network.Relays[0]
-
-	// Parse the multiaddress
-	multiAddr, err := multiaddr.NewMultiaddr(multiAddrStr)
-	if err != nil {
-		log.Fatalf("Failed to parse multiaddress: %v", err)
-	}
-
-	// Extract AddrInfo from the multiaddress
-	relay1info, err := peer.AddrInfoFromP2pAddr(multiAddr)
-	if err != nil {
-		log.Fatalf("Failed to extract AddrInfo: %v", err)
-	}
-
 	if cfg.Proxy == nil {
 		opts = append(opts,
 			libp2p.ListenAddrStrings(cfg.Network.ListenAddrs...),
@@ -241,10 +223,6 @@ func main() {
 		ping.NewPingService(host)
 		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost)
 
-		// Hosts that want to have messages relayed on their behalf need to reserve a slot
-		// with the circuit relay service host
-		// As we will open a stream to unreachable2, unreachable2 needs to make the
-
 		if cfg.ServePath != "" {
 			ss := newStatic(cfg.ServePath)
 			fmt.Printf("Serve HTTP static: %s\n", ss)
@@ -266,88 +244,37 @@ func main() {
 			protocol.Log.Fatal(err)
 		}
 
-		// Connect both unreachable1 and unreachable2 to relay1
-		if err := host.Connect(context.Background(), *relay1info); err != nil {
-			log.Printf("Failed to connect unreachable1 and relay1: %v", err)
-			return
-		}
-
 		fmt.Printf("Peer ID: %s\n", host.ID())
+		serverPeer := &peer.AddrInfo{ID: host.ID()}
+		if cfg.Proxy.ServerPeer != "" {
+			serverPeer, err = peer.AddrInfoFromString(cfg.Proxy.ServerPeer)
+			if err != nil {
+				protocol.Log.Fatal(err)
+			}
 
-		// Register a connection notification handler
-		host.Network().Notify(&network.NotifyBundle{
-			ConnectedF: func(n network.Network, conn network.Conn) {
-				addr := conn.RemoteMultiaddr()
-
-				if addr.String() == "" {
-					fmt.Println("No multiaddr found for connection.")
-					return
-				}
-
-				// Check if the connection is using a relay
-				if isRelayConnection(addr.String()) {
-					fmt.Printf("Connected via relay: %s\n", addr)
-				} else {
-					fmt.Printf("Direct P2P connection: %s\n", addr)
-				}
-			},
-		})
-
-		serverPeer1, err := peer.AddrInfoFromString(cfg.Proxy.ServerPeer)
-		if err != nil {
-			protocol.Log.Fatal(err)
+			// host.Peerstore().AddAddrs(serverPeer.ID, serverPeer.Addrs, peerstore.PermanentAddrTTL)
+			ctxt, cancel := context.WithTimeout(ctx, time.Second*5)
+			if err = host.Connect(ctxt, *serverPeer); err != nil {
+				protocol.Log.Fatal(err)
+			}
+			res := <-ping.Ping(ctxt, host, serverPeer.ID)
+			if res.Error != nil {
+				protocol.Log.Fatalf("ping error: %v", res.Error)
+			} else {
+				protocol.Log.Infof("ping RTT: %s", res.RTT)
+			}
+			cancel()
+			host.ConnManager().Protect(serverPeer.ID, "proxy")
 		}
-
-		// Now create a new address for unreachable2 that specifies to communicate via
-		// relay1 using a circuit relay
-		serverPeer, err := ma.NewMultiaddr("/p2p/" + relay1info.ID.String() + "/p2p-circuit/p2p/" + serverPeer1.ID.String())
-		if err != nil {
-			log.Println(err)
-			return
-		} else {
-			log.Println(serverPeer)
-		}
-
-		// Since we just tried and failed to dial, the dialer system will, by default
-		// prevent us from redialing again so quickly. Since we know what we're doing, we
-		// can use this ugly hack (it's on our TODO list to make it a little cleaner)
-		// to tell the dialer "no, its okay, let's try this again"
-		host.Network().(*swarm.Swarm).Backoff().Clear(serverPeer1.ID)
-
-		log.Println("Now let's attempt to connect the hosts via the relay node")
-
-		// Open a connection to the previously unreachable host via the relay address
-		unreachable2relayinfo := peer.AddrInfo{
-			ID:    serverPeer1.ID,
-			Addrs: []ma.Multiaddr{serverPeer},
-		}
-		// host.Peerstore().AddAddrs(serverPeer.ID, serverPeer.Addrs, peerstore.PermanentAddrTTL)
-		ctxt, cancel := context.WithTimeout(ctx, time.Second*5)
-
-		if err := host.Connect(context.Background(), unreachable2relayinfo); err != nil {
-			log.Printf("Unexpected error here. Failed to connect unreachable1 and unreachable2: %v", err)
-			return
-		}
-
-		log.Println("Yep, that worked!")
-
-		res := <-ping.Ping(ctxt, host, serverPeer1.ID)
-		if res.Error != nil {
-			protocol.Log.Fatalf("ping error: %v", res.Error)
-		} else {
-			protocol.Log.Infof("ping RTT: %s", res.RTT)
-		}
-		cancel()
-		host.ConnManager().Protect(serverPeer1.ID, "proxy")
 
 		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost)
 		fmt.Printf("Proxy Address: %s\n", cfg.Proxy.Addr)
 		go func() {
-			if err := proxy.Serve(cfg.Proxy.Addr, serverPeer1.ID); err != nil {
+			if err := proxy.Serve(cfg.Proxy.Addr, serverPeer.ID); err != nil {
 				protocol.Log.Fatal(err)
 			}
 		}()
-		if err := proxy.ServeSsh("0.0.0.0:2222", serverPeer1.ID); err != nil {
+		if err := proxy.ServeSsh("0.0.0.0:2222", serverPeer.ID); err != nil {
 			protocol.Log.Fatal(err)
 		}
 	}
@@ -393,14 +320,4 @@ func (s static) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer protocol.Log.Infof("serve file: %s", name)
 	http.ServeFile(w, r, name)
-}
-
-// Helper function to check if the multiaddr uses a relay
-func isRelayConnection(multiaddr string) bool {
-	return contains(multiaddr, "/p2p-circuit")
-}
-
-// Helper function to check if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (len(substr) == 0 || (s != "" && (s[0:len(substr)] == substr || contains(s[1:], substr))))
 }
