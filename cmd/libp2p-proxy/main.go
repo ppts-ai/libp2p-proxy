@@ -23,7 +23,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/routing"
 	"github.com/libp2p/go-libp2p/p2p/net/swarm"
-	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/multiformats/go-multiaddr"
 	ma "github.com/multiformats/go-multiaddr"
@@ -118,20 +117,19 @@ func main() {
 		libp2p.WithDialTimeout(time.Second * 60),
 	}
 
-	// if len(cfg.Network.Relays) > 0 {
-	// 	relays := make([]peer.AddrInfo, 0, len(cfg.Network.Relays))
-	// 	for _, addr := range cfg.Network.Relays {
-	// 		pi, err := peer.AddrInfoFromString(addr)
-	// 		if err != nil {
-	// 			protocol.Log.Fatal(fmt.Sprintf("failed to initialize default static relays: %s", err))
-	// 		}
-	// 		relays = append(relays, *pi)
-	// 	}
-	// 	opts = append(opts,
-	// 		libp2p.EnableAutoRelay(),
-	// 		libp2p.StaticRelays(relays),
-	// 	)
-	// }
+	if len(cfg.Network.Relays) > 0 {
+		relays := make([]peer.AddrInfo, 0, len(cfg.Network.Relays))
+		for _, addr := range cfg.Network.Relays {
+			pi, err := peer.AddrInfoFromString(addr)
+			if err != nil {
+				protocol.Log.Fatal(fmt.Sprintf("failed to initialize default static relays: %s", err))
+			}
+			relays = append(relays, *pi)
+		}
+		opts = append(opts,
+			libp2p.EnableAutoRelayWithStaticRelays(relays),
+		)
+	}
 
 	acl, err := protocol.NewACL(cfg.ACL)
 	if err != nil {
@@ -185,7 +183,7 @@ func main() {
 	}
 
 	// The multiaddress string
-	multiAddrStr := "/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
+	multiAddrStr := cfg.Network.Relays[0]
 
 	// Parse the multiaddress
 	multiAddr, err := multiaddr.NewMultiaddr(multiAddrStr)
@@ -234,12 +232,6 @@ func main() {
 			protocol.Log.Fatal(err)
 		}
 
-		// Connect both unreachable1 and unreachable2 to relay1
-		if err := host.Connect(context.Background(), *relay1info); err != nil {
-			log.Printf("Failed to connect unreachable1 and relay1: %v", err)
-			return
-		}
-
 		fmt.Printf("Peer ID: %s\n", host.ID())
 		fmt.Printf("Peer Addresses:\n")
 		for _, addr := range host.Addrs() {
@@ -252,12 +244,6 @@ func main() {
 		// Hosts that want to have messages relayed on their behalf need to reserve a slot
 		// with the circuit relay service host
 		// As we will open a stream to unreachable2, unreachable2 needs to make the
-		// reservation
-		_, err = client.Reserve(context.Background(), host, *relay1info)
-		if err != nil {
-			log.Printf("unreachable2 failed to receive a relay reservation from relay1. %v", err)
-			return
-		}
 
 		if cfg.ServePath != "" {
 			ss := newStatic(cfg.ServePath)
