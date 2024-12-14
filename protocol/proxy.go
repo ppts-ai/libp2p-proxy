@@ -74,20 +74,35 @@ func (p *ProxyService) Handler(s network.Stream) {
 func (p *ProxyService) handler(bs *BufReaderStream) {
 	defer bs.Close()
 
-	b, err := bs.Reader.Peek(1)
-	if err != nil {
-		if err == io.EOF {
+	_, cancel := context.WithCancel(p.ctx)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+
+		b, err := bs.Reader.Peek(1)
+		if err != nil {
+			if err == io.EOF {
+				return
+			}
+			Log.Errorf("read stream error: %s", err)
+			bs.Reset()
 			return
 		}
-		Log.Errorf("read stream error: %s", err)
-		bs.Reset()
-		return
-	}
 
-	if IsSocks5(b[0]) {
-		p.socks5Handler(bs)
-	} else {
-		p.httpHandler(bs)
+		if IsSocks5(b[0]) {
+			p.socks5Handler(bs)
+		} else {
+			p.httpHandler(bs)
+		}
+	}()
+
+	select {
+	case <-p.ctx.Done(): // Context canceled
+		Log.Warn("Handler interrupted due to service shutdown")
+		bs.Reset() // Reset the stream to ensure proper cleanup
+	case <-done: // Handler completed
 	}
 }
 
