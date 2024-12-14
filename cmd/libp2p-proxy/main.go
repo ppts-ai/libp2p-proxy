@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,7 +21,10 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/routing"
+	"github.com/libp2p/go-libp2p/p2p/net/swarm"
+	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
+	"github.com/multiformats/go-multiaddr"
 	ma "github.com/multiformats/go-multiaddr"
 
 	"github.com/p2pdao/libp2p-proxy/config"
@@ -179,6 +183,21 @@ func main() {
 		)
 	}
 
+	// The multiaddress string
+	multiAddrStr := "/ip4/104.131.131.82/tcp/4001/p2p/QmaCpDMGvV2BGHeYERUEnRQAwe3N8SzbUtfsmvsqQLuvuJ"
+
+	// Parse the multiaddress
+	multiAddr, err := multiaddr.NewMultiaddr(multiAddrStr)
+	if err != nil {
+		log.Fatalf("Failed to parse multiaddress: %v", err)
+	}
+
+	// Extract AddrInfo from the multiaddress
+	relay1info, err := peer.AddrInfoFromP2pAddr(multiAddr)
+	if err != nil {
+		log.Fatalf("Failed to extract AddrInfo: %v", err)
+	}
+
 	if cfg.Proxy == nil {
 		opts = append(opts,
 			libp2p.ListenAddrStrings(cfg.Network.ListenAddrs...),
@@ -214,6 +233,12 @@ func main() {
 			protocol.Log.Fatal(err)
 		}
 
+		// Connect both unreachable1 and unreachable2 to relay1
+		if err := host.Connect(context.Background(), *relay1info); err != nil {
+			log.Printf("Failed to connect unreachable1 and relay1: %v", err)
+			return
+		}
+
 		fmt.Printf("Peer ID: %s\n", host.ID())
 		fmt.Printf("Peer Addresses:\n")
 		for _, addr := range host.Addrs() {
@@ -222,6 +247,16 @@ func main() {
 
 		ping.NewPingService(host)
 		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost)
+
+		// Hosts that want to have messages relayed on their behalf need to reserve a slot
+		// with the circuit relay service host
+		// As we will open a stream to unreachable2, unreachable2 needs to make the
+		// reservation
+		_, err = client.Reserve(context.Background(), host, *relay1info)
+		if err != nil {
+			log.Printf("unreachable2 failed to receive a relay reservation from relay1. %v", err)
+			return
+		}
 
 		if cfg.ServePath != "" {
 			ss := newStatic(cfg.ServePath)
@@ -244,27 +279,61 @@ func main() {
 			protocol.Log.Fatal(err)
 		}
 
+		// Connect both unreachable1 and unreachable2 to relay1
+		if err := host.Connect(context.Background(), *relay1info); err != nil {
+			log.Printf("Failed to connect unreachable1 and relay1: %v", err)
+			return
+		}
+
 		fmt.Printf("Peer ID: %s\n", host.ID())
 		serverPeer := &peer.AddrInfo{ID: host.ID()}
 		if cfg.Proxy.ServerPeer != "" {
-			serverPeer, err = peer.AddrInfoFromString(cfg.Proxy.ServerPeer)
+			serverPeer1, err := peer.AddrInfoFromString(cfg.Proxy.ServerPeer)
 			if err != nil {
 				protocol.Log.Fatal(err)
 			}
 
+			// Now create a new address for unreachable2 that specifies to communicate via
+			// relay1 using a circuit relay
+			serverPeer, err := ma.NewMultiaddr("/p2p/" + relay1info.ID.String() + "/p2p-circuit/p2p/" + serverPeer1.ID.String())
+			if err != nil {
+				log.Println(err)
+				return
+			} else {
+				log.Println(serverPeer)
+			}
+
+			// Since we just tried and failed to dial, the dialer system will, by default
+			// prevent us from redialing again so quickly. Since we know what we're doing, we
+			// can use this ugly hack (it's on our TODO list to make it a little cleaner)
+			// to tell the dialer "no, its okay, let's try this again"
+			host.Network().(*swarm.Swarm).Backoff().Clear(serverPeer1.ID)
+
+			log.Println("Now let's attempt to connect the hosts via the relay node")
+
+			// Open a connection to the previously unreachable host via the relay address
+			unreachable2relayinfo := peer.AddrInfo{
+				ID:    serverPeer1.ID,
+				Addrs: []ma.Multiaddr{serverPeer},
+			}
 			// host.Peerstore().AddAddrs(serverPeer.ID, serverPeer.Addrs, peerstore.PermanentAddrTTL)
 			ctxt, cancel := context.WithTimeout(ctx, time.Second*5)
-			if err = host.Connect(ctxt, *serverPeer); err != nil {
-				protocol.Log.Fatal(err)
+
+			if err := host.Connect(context.Background(), unreachable2relayinfo); err != nil {
+				log.Printf("Unexpected error here. Failed to connect unreachable1 and unreachable2: %v", err)
+				return
 			}
-			res := <-ping.Ping(ctxt, host, serverPeer.ID)
+
+			log.Println("Yep, that worked!")
+
+			res := <-ping.Ping(ctxt, host, serverPeer1.ID)
 			if res.Error != nil {
 				protocol.Log.Fatalf("ping error: %v", res.Error)
 			} else {
 				protocol.Log.Infof("ping RTT: %s", res.RTT)
 			}
 			cancel()
-			host.ConnManager().Protect(serverPeer.ID, "proxy")
+			host.ConnManager().Protect(serverPeer1.ID, "proxy")
 		}
 
 		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost)
