@@ -292,7 +292,7 @@ func main() {
 
 				res := <-ping.Ping(ctxt, host, serverPeer.ID)
 				if res.Error != nil {
-					protocol.Log.Fatalf("ping error: %v", res.Error)
+					protocol.Log.Warnf("ping error: %v", res.Error)
 				} else {
 					protocol.Log.Infof("ping RTT: %s", res.RTT)
 				}

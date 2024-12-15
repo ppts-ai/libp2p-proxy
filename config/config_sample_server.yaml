@@ -9,7 +9,7 @@ network:
     - "/ip4/0.0.0.0/tcp/11212/ws"
     - "/ip6/::/tcp/11212/ws"
   relays:
-    - "/ip4/64.176.227.5/tcp/11211/p2p/12D3KooWSPGy9bCrTRF5Nwsb3B6CQsZ9VGvEGPJ6ZT2ZWWCTXR3p"
+    - "/ip4/64.176.227.5/tcp/45335/p2p/12D3KooWMZVVbjbPf4nBw3s22Uf1PjTnUyow3tGEBJ5CGd47Hypt"
 acl:
   allow_peers: []
   allow_subnets: []
