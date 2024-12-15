@@ -110,7 +110,7 @@ func main() {
 		libp2p.UserAgent(protocol.ServiceName),
 		libp2p.EnableRelay(),
 		libp2p.EnableHolePunching(),
-		libp2p.WithDialTimeout(time.Second * 60),
+		libp2p.WithDialTimeout(time.Second * 3600),
 	}
 
 	if len(cfg.Network.Relays) > 0 {
@@ -275,8 +275,32 @@ func main() {
 				protocol.Log.Fatal(err)
 			}
 		}()
-		if err := proxy.ServeSsh("0.0.0.0:2222", serverPeer.ID); err != nil {
-			protocol.Log.Fatal(err)
+		go func() {
+			if err := proxy.ServeSsh("0.0.0.0:2222", serverPeer.ID); err != nil {
+				protocol.Log.Fatal(err)
+			}
+		}()
+
+		for {
+			select {
+			case <-ctx.Done():
+				// Exit the loop if the context is canceled or times out
+				return
+			default:
+				// Create a new context with a 5-second timeout for each ping
+				ctxt, cancel := context.WithTimeout(ctx, time.Second*5)
+
+				res := <-ping.Ping(ctxt, host, serverPeer.ID)
+				if res.Error != nil {
+					protocol.Log.Fatalf("ping error: %v", res.Error)
+				} else {
+					protocol.Log.Infof("ping RTT: %s", res.RTT)
+				}
+				cancel()
+
+				// Wait for 30 seconds before the next iteration
+				time.Sleep(30 * time.Second)
+			}
 		}
 	}
 }
