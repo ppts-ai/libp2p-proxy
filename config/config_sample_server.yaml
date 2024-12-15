@@ -1,5 +1,6 @@
-peer_key: "CAESQLcvtmSITUktckPrPSOQuTSPjTBBO7/FW3m5N1qnTfBv9ilHJ7GknXc/AKLaiekjqlm/STh97MDPTV8nkl4aRfM="
+peer_key: "CAESQE25a0+Z9TbPJintcePkLOotXWfisiZ5W9AKry+4FYSrfikBAUuwS+crexXLR+dDpQ16/k8TTRqhiAmPt894PrI="
 network:
+  enable_nat: true
   listen_addrs:
     - "/ip4/0.0.0.0/udp/11211/quic"
     - "/ip6/::/udp/11211/quic"
@@ -7,6 +8,8 @@ network:
     - "/ip6/::/tcp/11211"
     - "/ip4/0.0.0.0/tcp/11212/ws"
     - "/ip6/::/tcp/11212/ws"
+  relays:
+    - "/ip4/64.176.227.5/tcp/11211/p2p/12D3KooWSPGy9bCrTRF5Nwsb3B6CQsZ9VGvEGPJ6ZT2ZWWCTXR3p"
 acl:
-  allow_peers: ["12D3KooWAMspLEqdE79kAuvMAmPNHeJdJGTpKb7rEmksrQodhU62"]
+  allow_peers: []
   allow_subnets: []

@@ -113,20 +113,19 @@ func main() {
 		libp2p.WithDialTimeout(time.Second * 60),
 	}
 
-	// if len(cfg.Network.Relays) > 0 {
-	// 	relays := make([]peer.AddrInfo, 0, len(cfg.Network.Relays))
-	// 	for _, addr := range cfg.Network.Relays {
-	// 		pi, err := peer.AddrInfoFromString(addr)
-	// 		if err != nil {
-	// 			protocol.Log.Fatal(fmt.Sprintf("failed to initialize default static relays: %s", err))
-	// 		}
-	// 		relays = append(relays, *pi)
-	// 	}
-	// 	opts = append(opts,
-	// 		libp2p.EnableAutoRelay(),
-	// 		libp2p.StaticRelays(relays),
-	// 	)
-	// }
+	if len(cfg.Network.Relays) > 0 {
+		relays := make([]peer.AddrInfo, 0, len(cfg.Network.Relays))
+		for _, addr := range cfg.Network.Relays {
+			pi, err := peer.AddrInfoFromString(addr)
+			if err != nil {
+				protocol.Log.Fatal(fmt.Sprintf("failed to initialize default static relays: %s", err))
+			}
+			relays = append(relays, *pi)
+		}
+		opts = append(opts,
+			libp2p.EnableAutoRelayWithStaticRelays(relays),
+		)
+	}
 
 	acl, err := protocol.NewACL(cfg.ACL)
 	if err != nil {
@@ -187,6 +186,8 @@ func main() {
 		if cfg.Network.EnableNAT {
 			opts = append(opts,
 				libp2p.NATPortMap(),
+				libp2p.EnableRelayService(),
+				libp2p.EnableAutoNATv2(),
 				libp2p.EnableNATService(),
 			)
 		}
