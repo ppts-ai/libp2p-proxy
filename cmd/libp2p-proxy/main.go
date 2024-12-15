@@ -112,21 +112,6 @@ func main() {
 		libp2p.NoListenAddrs,
 	}
 
-	// if len(cfg.Network.Relays) > 0 {
-	// 	relays := make([]peer.AddrInfo, 0, len(cfg.Network.Relays))
-	// 	for _, addr := range cfg.Network.Relays {
-	// 		pi, err := peer.AddrInfoFromString(addr)
-	// 		if err != nil {
-	// 			protocol.Log.Fatal(fmt.Sprintf("failed to initialize default static relays: %s", err))
-	// 		}
-	// 		relays = append(relays, *pi)
-	// 	}
-	// 	opts = append(opts,
-	// 		libp2p.EnableAutoRelay(),
-	// 		libp2p.StaticRelays(relays),
-	// 	)
-	// }
-
 	acl, err := protocol.NewACL(cfg.ACL)
 	if err != nil {
 		protocol.Log.Fatal(err)
@@ -134,7 +119,7 @@ func main() {
 	opts = append(opts, libp2p.ConnectionGater(acl))
 
 	// The multiaddress string
-	multiAddrStr := "/ip4/64.176.227.5/tcp/11212/ws/p2p/12D3KooWSPGy9bCrTRF5Nwsb3B6CQsZ9VGvEGPJ6ZT2ZWWCTXR3p"
+	multiAddrStr := "/ip4/64.176.227.5/tcp/34631/p2p/12D3KooWJ51qw1rLPLFAS44iwsHmY1qjzgZFuTSMfsDR8526hdeA"
 
 	// Parse the multiaddress
 	multiAddr, err := multiaddr.NewMultiaddr(multiAddrStr)
@@ -318,8 +303,32 @@ func main() {
 				protocol.Log.Fatal(err)
 			}
 		}()
-		if err := proxy.ServeSsh("0.0.0.0:2222", serverPeer1.ID); err != nil {
-			protocol.Log.Fatal(err)
+		go func() {
+			if err := proxy.ServeSsh("0.0.0.0:2222", serverPeer1.ID); err != nil {
+				protocol.Log.Fatal(err)
+			}
+		}()
+
+		for {
+			select {
+			case <-ctx.Done():
+				// Exit the loop if the context is canceled or times out
+				return
+			default:
+				// Create a new context with a 5-second timeout for each ping
+				ctxt, cancel := context.WithTimeout(ctx, time.Second*5)
+
+				res := <-ping.Ping(ctxt, host, relay1info.ID)
+				if res.Error != nil {
+					protocol.Log.Fatalf("ping error: %v", res.Error)
+				} else {
+					protocol.Log.Infof("ping RTT: %s", res.RTT)
+				}
+				cancel()
+
+				// Wait for 30 seconds before the next iteration
+				time.Sleep(30 * time.Second)
+			}
 		}
 	}
 }
