@@ -1,4 +1,5 @@
 peer_key: "CAESQE25a0+Z9TbPJintcePkLOotXWfisiZ5W9AKry+4FYSrfikBAUuwS+crexXLR+dDpQ16/k8TTRqhiAmPt894PrI="
+ssh_server: 127.0.0.1:22
 network:
   enable_nat: true
   listen_addrs:
@@ -9,7 +10,7 @@ network:
     - "/ip4/0.0.0.0/tcp/11212/ws"
     - "/ip6/::/tcp/11212/ws"
   relays:
-    - "/ip4/64.176.227.5/tcp/45335/p2p/12D3KooWMZVVbjbPf4nBw3s22Uf1PjTnUyow3tGEBJ5CGd47Hypt"
+    - "/ip4/64.176.227.5/tcp/4001/p2p/12D3KooWLzi9E1oaHLhWrgTPnPa3aUjNkM8vvC8nYZp1gk9RjTV1"
 acl:
   allow_peers: []
   allow_subnets: []

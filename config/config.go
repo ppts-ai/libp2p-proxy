@@ -13,6 +13,7 @@ import (
 type Config struct {
 	PeerKey   string        `json:"peer_key" yaml:"peer_key"`
 	P2PHost   string        `json:"p2p_host" yaml:"p2p_host"`
+	SshServer string        `json:"ssh_server" yaml:"ssh_server"`
 	ServePath string        `json:"serve_path" yaml:"serve_path"`
 	Network   NetworkConfig `json:"network" yaml:"network"`
 	DHT       DHTConfig     `json:"dht" yaml:"dht"`
@@ -22,6 +23,7 @@ type Config struct {
 
 type ProxyConfig struct {
 	Addr       string `json:"addr" yaml:"addr"`
+	Ssh        string `json:"ssh" yaml:"ssh"`
 	ServerPeer string `json:"server_peer" yaml:"server_peer"`
 }
 

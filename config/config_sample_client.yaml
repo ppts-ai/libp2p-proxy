@@ -5,4 +5,5 @@ network:
     - "/ip4/64.176.227.5/tcp/11211/p2p/12D3KooWSPGy9bCrTRF5Nwsb3B6CQsZ9VGvEGPJ6ZT2ZWWCTXR3p"
 proxy:
   addr: 0.0.0.0:1082
-  server_peer: "/ip4/64.176.227.5/tcp/45335/p2p/12D3KooWMZVVbjbPf4nBw3s22Uf1PjTnUyow3tGEBJ5CGd47Hypt/p2p-circuit/p2p/12D3KooWJJqoWuC2CVAuUfEfdLHguh1bPbKsLwQY4SoC2Vw695ry"
+  ssh: 0.0.0.0:2222
+  server_peer: "/ip4/64.176.227.5/tcp/4001/p2p/12D3KooWLzi9E1oaHLhWrgTPnPa3aUjNkM8vvC8nYZp1gk9RjTV1/p2p-circuit/p2p/12D3KooWJJqoWuC2CVAuUfEfdLHguh1bPbKsLwQY4SoC2Vw695ry"

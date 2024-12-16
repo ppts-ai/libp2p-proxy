@@ -222,7 +222,7 @@ func main() {
 		}
 
 		ping.NewPingService(host)
-		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost)
+		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost, cfg.SshServer)
 
 		if cfg.ServePath != "" {
 			ss := newStatic(cfg.ServePath)
@@ -268,7 +268,7 @@ func main() {
 			host.ConnManager().Protect(serverPeer.ID, "proxy")
 		}
 
-		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost)
+		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost, "")
 		fmt.Printf("Proxy Address: %s\n", cfg.Proxy.Addr)
 		go func() {
 			if err := proxy.Serve(cfg.Proxy.Addr, serverPeer.ID); err != nil {
@@ -276,7 +276,7 @@ func main() {
 			}
 		}()
 		go func() {
-			if err := proxy.ServeSsh("0.0.0.0:2222", serverPeer.ID); err != nil {
+			if err := proxy.ServeSsh(cfg.Proxy.Ssh, serverPeer.ID); err != nil {
 				protocol.Log.Fatal(err)
 			}
 		}()

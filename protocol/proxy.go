@@ -19,24 +19,24 @@ import (
 )
 
 const (
-	P2PHttpID        protocol.ID = "/http"
-	ID               protocol.ID = "/p2pdao/libp2p-proxy/1.0.0"
-	SSH_ID           protocol.ID = "/p2pdao/libp2p-ssh/1.0.0"
-	ServiceName      string      = "p2pdao.libp2p-proxy"
-	sshServerAddress             = "127.0.0.1:22" // Address of the real SSH server
+	P2PHttpID   protocol.ID = "/http"
+	ID          protocol.ID = "/p2pdao/libp2p-proxy/1.0.0"
+	SSH_ID      protocol.ID = "/p2pdao/libp2p-ssh/1.0.0"
+	ServiceName string      = "p2pdao.libp2p-proxy"
 )
 
 var Log = logging.Logger("libp2p-proxy")
 
 type ProxyService struct {
-	ctx     context.Context
-	host    host.Host
-	http    *http.Server
-	p2pHost string
+	ctx              context.Context
+	host             host.Host
+	http             *http.Server
+	p2pHost          string
+	sshServerAddress string
 }
 
-func NewProxyService(ctx context.Context, h host.Host, p2pHost string) *ProxyService {
-	ps := &ProxyService{ctx, h, nil, p2pHost}
+func NewProxyService(ctx context.Context, h host.Host, p2pHost string, sshServer string) *ProxyService {
+	ps := &ProxyService{ctx, h, nil, p2pHost, sshServer}
 	h.SetStreamHandler(ID, ps.Handler)
 	h.SetStreamHandler(SSH_ID, ps.Ssh_Handler)
 	return ps
@@ -80,7 +80,7 @@ func (p *ProxyService) Ssh_Handler(stream network.Stream) {
 	defer stream.Close()
 
 	// Connect to the real SSH server
-	sshConn, err := net.Dial("tcp", sshServerAddress)
+	sshConn, err := net.Dial("tcp", p.sshServerAddress)
 	if err != nil {
 		log.Printf("Failed to connect to SSH server: %v", err)
 		return
