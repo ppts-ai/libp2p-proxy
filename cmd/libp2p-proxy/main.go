@@ -51,6 +51,7 @@ func main() {
 	cfgPath := flag.String("config", "", "json configuration file; empty uses the default configuration")
 	peerID := flag.String("peer", "", "proxy server peer address")
 	proxyAddr := flag.String("addr", "", "proxy client address, default is 127.0.0.1:1082")
+	sshProxy := flag.String("ssh", "", "proxy client address, default is 127.0.0.1:2222")
 	help := flag.Bool("help", false, "show help info")
 	genKey := flag.Bool("key", false, "generate a new peer private key")
 	// version := flag.Bool("version", false, "show version info")
@@ -88,6 +89,9 @@ func main() {
 		}
 		if proxyAddr != nil && *proxyAddr != "" {
 			cfg.Proxy.Addr = *proxyAddr
+		}
+		if sshProxy != nil && *sshProxy != "" {
+			cfg.Proxy.Ssh = *sshProxy
 		}
 	}
 

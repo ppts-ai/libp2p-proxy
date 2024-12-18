@@ -1,4 +1,4 @@
-peer_key: "CAESQE25a0+Z9TbPJintcePkLOotXWfisiZ5W9AKry+4FYSrfikBAUuwS+crexXLR+dDpQ16/k8TTRqhiAmPt894PrI="
+peer_key: "CAESQKheHgpBqkqq5pxNg+0hxjtRdL99q/uOcDxUoAWhs1DWh/O+p8NH1yCEP7Ri+rdbpbHS7vnBBD8zxY2320F2d8U="
 ssh_server: 127.0.0.1:22
 network:
   enable_nat: true
