@@ -7,7 +7,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-func (p *ProxyService) Serve(proxyAddr string, remotePeer peer.ID) error {
+func (p *ProxyService) Serve(proxyAddr string) error {
 	ln, err := net.Listen("tcp", proxyAddr)
 	if err != nil {
 		return err
@@ -24,11 +24,11 @@ func (p *ProxyService) Serve(proxyAddr string, remotePeer peer.ID) error {
 		if err != nil {
 			return err
 		}
-		go p.sideHandler(conn, remotePeer)
+		go p.sideHandler(conn, p.remotePeer)
 	}
 }
 
-func (p *ProxyService) ServeSsh(proxyAddr string, remotePeer peer.ID) error {
+func (p *ProxyService) ServeSsh(proxyAddr string) error {
 	ln, err := net.Listen("tcp", proxyAddr)
 	if err != nil {
 		return err
@@ -45,13 +45,36 @@ func (p *ProxyService) ServeSsh(proxyAddr string, remotePeer peer.ID) error {
 		if err != nil {
 			return err
 		}
-		go p.sideHandlerSsh(conn, remotePeer)
+		go p.sideHandlerSsh(conn, p.remotePeer)
+	}
+}
+
+func (p *ProxyService) ServePodman(proxyAddr string) error {
+	ln, err := net.Listen("tcp", proxyAddr)
+	if err != nil {
+		return err
+	}
+
+	go p.Wait(ln.Close)
+
+	for {
+		conn, err := ln.Accept()
+		if err := p.ctx.Err(); err != nil {
+			return err
+		}
+
+		if err != nil {
+			return err
+		}
+		go p.sideHandlerPodman(conn, p.remotePeer)
 	}
 }
 
 func (p *ProxyService) sideHandler(conn net.Conn, remotePeer peer.ID) {
 	defer conn.Close()
-
+	if remotePeer == "" {
+		return
+	}
 	// standalone mode
 	if remotePeer == p.host.ID() {
 		p.handler(NewBufReaderStream(conn))
@@ -72,7 +95,9 @@ func (p *ProxyService) sideHandler(conn net.Conn, remotePeer peer.ID) {
 
 func (p *ProxyService) sideHandlerSsh(conn net.Conn, remotePeer peer.ID) {
 	defer conn.Close()
-
+	if remotePeer == "" {
+		return
+	}
 	// standalone mode
 	if remotePeer == p.host.ID() {
 		p.handler(NewBufReaderStream(conn))
@@ -80,6 +105,30 @@ func (p *ProxyService) sideHandlerSsh(conn net.Conn, remotePeer peer.ID) {
 	}
 
 	s, err := p.host.NewStream(network.WithAllowLimitedConn(p.ctx, "/p2pdao/libp2p-ssh/1.0.0"), remotePeer, SSH_ID)
+	if err != nil {
+		Log.Errorf("creating stream to %s error: %v", remotePeer, err)
+		return
+	}
+
+	defer s.Close()
+	if err := tunneling(s, conn); shouldLogError(err) {
+		Log.Warn(err)
+	}
+}
+
+func (p *ProxyService) sideHandlerPodman(conn net.Conn, remotePeer peer.ID) {
+	defer conn.Close()
+	if remotePeer == "" {
+		return
+	}
+
+	// standalone mode
+	if remotePeer == p.host.ID() {
+		p.handler(NewBufReaderStream(conn))
+		return
+	}
+
+	s, err := p.host.NewStream(network.WithAllowLimitedConn(p.ctx, "/p2pdao/libp2p-podman/1.0.0"), remotePeer, PODMAN_ID)
 	if err != nil {
 		Log.Errorf("creating stream to %s error: %v", remotePeer, err)
 		return

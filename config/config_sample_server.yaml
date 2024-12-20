@@ -9,5 +9,5 @@ network:
     - "/ip4/0.0.0.0/tcp/11212/ws"
     - "/ip6/::/tcp/11212/ws"
 acl:
-  allow_peers: ["12D3KooWAMspLEqdE79kAuvMAmPNHeJdJGTpKb7rEmksrQodhU62"]
+  allow_peers: []
   allow_subnets: []

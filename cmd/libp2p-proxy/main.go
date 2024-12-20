@@ -22,7 +22,6 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/multiformats/go-multiaddr"
 	ma "github.com/multiformats/go-multiaddr"
-
 	"github.com/p2pdao/libp2p-proxy/config"
 	"github.com/p2pdao/libp2p-proxy/protocol"
 )
@@ -79,16 +78,21 @@ func main() {
 	}
 
 	if peerID != nil && *peerID != "" {
-		if cfg.Proxy == nil {
-			cfg.Proxy = &config.ProxyConfig{}
+		if strings.HasPrefix(*peerID, "/") {
+			if cfg.Proxy == nil {
+				cfg.Proxy = &config.ProxyConfig{}
+			}
+			cfg.Proxy.ServerPeer = *peerID
+			if cfg.Proxy.Addr == "" {
+				cfg.Proxy.Addr = "127.0.0.1:1082"
+			}
+			if proxyAddr != nil && *proxyAddr != "" {
+				cfg.Proxy.Addr = *proxyAddr
+			}
+		} else {
+			cfg.PeerKey = *peerID
 		}
-		cfg.Proxy.ServerPeer = *peerID
-		if cfg.Proxy.Addr == "" {
-			cfg.Proxy.Addr = "127.0.0.1:1082"
-		}
-		if proxyAddr != nil && *proxyAddr != "" {
-			cfg.Proxy.Addr = *proxyAddr
-		}
+
 	}
 
 	if cfg.PeerKey == "" {
@@ -119,7 +123,7 @@ func main() {
 	opts = append(opts, libp2p.ConnectionGater(acl))
 
 	// The multiaddress string
-	multiAddrStr := "/ip4/64.176.227.5/tcp/34631/p2p/12D3KooWJ51qw1rLPLFAS44iwsHmY1qjzgZFuTSMfsDR8526hdeA"
+	multiAddrStr := "/ip4/64.176.227.5/tcp/4001/p2p/12D3KooWLzi9E1oaHLhWrgTPnPa3aUjNkM8vvC8nYZp1gk9RjTV1"
 
 	// Parse the multiaddress
 	multiAddr, err := multiaddr.NewMultiaddr(multiAddrStr)
@@ -216,10 +220,16 @@ func main() {
 			protocol.Log.Fatal(err)
 		}
 
-		serverPeer1, err := peer.AddrInfoFromString(cfg.Proxy.ServerPeer)
-		if err != nil {
-			protocol.Log.Fatal(err)
+		// Connect both unreachable1 and unreachable2 to relay1
+		if err := host.Connect(context.Background(), *relay1info); err != nil {
+			log.Printf("Failed to connect unreachable1 and relay1: %v", err)
+			return
 		}
+
+		fmt.Printf("Peer ID: %s\n", host.ID())
+
+		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost)
+		fmt.Printf("Proxy Address: %s\n", cfg.Proxy.Addr)
 
 		// Register a connection notification handler
 		host.Network().Notify(&network.NotifyBundle{
@@ -241,74 +251,77 @@ func main() {
 			DisconnectedF: func(_ network.Network, conn network.Conn) {
 				if conn.RemotePeer() == relay1info.ID {
 					fmt.Println("Lost connection to relay. Reconnecting...")
-					go reconnectToRelay(host, relay1info, serverPeer1.ID)
+					go reconnectToRelay(host, relay1info, proxy.GetRemotePeer())
 				}
 			},
 		})
+		go func() {
+			if err := proxy.Serve(cfg.Proxy.Addr); err != nil {
+				protocol.Log.Fatal(err)
+			}
+		}()
+		go func() {
+			if err := proxy.ServeSsh("0.0.0.0:2222"); err != nil {
+				protocol.Log.Fatal(err)
+			}
+		}()
 
-		// Connect both unreachable1 and unreachable2 to relay1
-		if err := host.Connect(context.Background(), *relay1info); err != nil {
-			log.Printf("Failed to connect unreachable1 and relay1: %v", err)
-			return
-		}
+		go func() {
+			if err := proxy.ServePodman("0.0.0.0:3333"); err != nil {
+				protocol.Log.Fatal(err)
+			}
+		}()
 
-		fmt.Printf("Peer ID: %s\n", host.ID())
+		// Define a handler function
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprintln(w, "Hello, World!")
+			serverPeer1, err := peer.AddrInfoFromString(cfg.Proxy.ServerPeer)
+			if err != nil {
+				protocol.Log.Fatal(err)
+			}
+			serverPeer, err := ma.NewMultiaddr("/p2p/" + relay1info.ID.String() + "/p2p-circuit/p2p/" + serverPeer1.ID.String())
+			if err != nil {
+				log.Println(err)
+				return
+			} else {
+				log.Println(serverPeer)
+			}
 
-		// Now create a new address for unreachable2 that specifies to communicate via
-		// relay1 using a circuit relay
-		serverPeer, err := ma.NewMultiaddr("/p2p/" + relay1info.ID.String() + "/p2p-circuit/p2p/" + serverPeer1.ID.String())
+			host.Network().(*swarm.Swarm).Backoff().Clear(serverPeer1.ID)
+
+			log.Println("Now let's attempt to connect the hosts via the relay node")
+
+			// Open a connection to the previously unreachable host via the relay address
+			unreachable2relayinfo := peer.AddrInfo{
+				ID:    serverPeer1.ID,
+				Addrs: []ma.Multiaddr{serverPeer},
+			}
+			// host.Peerstore().AddAddrs(serverPeer.ID, serverPeer.Addrs, peerstore.PermanentAddrTTL)
+			ctxt, cancel := context.WithTimeout(ctx, time.Second*5)
+
+			if err := host.Connect(context.Background(), unreachable2relayinfo); err != nil {
+				log.Printf("Unexpected error here. Failed to connect unreachable1 and unreachable2: %v", err)
+				return
+			}
+
+			log.Println("Yep, that worked!")
+
+			res := <-ping.Ping(ctxt, host, serverPeer1.ID)
+			if res.Error != nil {
+				protocol.Log.Fatalf("ping error: %v", res.Error)
+			} else {
+				protocol.Log.Infof("ping RTT: %s", res.RTT)
+			}
+			cancel()
+			host.ConnManager().Protect(serverPeer1.ID, "proxy")
+		})
+
+		// Start the HTTP server
+		fmt.Println("Starting server on :8080...")
+		err = http.ListenAndServe(":8080", nil)
 		if err != nil {
-			log.Println(err)
-			return
-		} else {
-			log.Println(serverPeer)
+			fmt.Println("Error starting server:", err)
 		}
-
-		// Since we just tried and failed to dial, the dialer system will, by default
-		// prevent us from redialing again so quickly. Since we know what we're doing, we
-		// can use this ugly hack (it's on our TODO list to make it a little cleaner)
-		// to tell the dialer "no, its okay, let's try this again"
-		host.Network().(*swarm.Swarm).Backoff().Clear(serverPeer1.ID)
-
-		log.Println("Now let's attempt to connect the hosts via the relay node")
-
-		// Open a connection to the previously unreachable host via the relay address
-		unreachable2relayinfo := peer.AddrInfo{
-			ID:    serverPeer1.ID,
-			Addrs: []ma.Multiaddr{serverPeer},
-		}
-		// host.Peerstore().AddAddrs(serverPeer.ID, serverPeer.Addrs, peerstore.PermanentAddrTTL)
-		ctxt, cancel := context.WithTimeout(ctx, time.Second*5)
-
-		if err := host.Connect(context.Background(), unreachable2relayinfo); err != nil {
-			log.Printf("Unexpected error here. Failed to connect unreachable1 and unreachable2: %v", err)
-			return
-		}
-
-		log.Println("Yep, that worked!")
-
-		res := <-ping.Ping(ctxt, host, serverPeer1.ID)
-		if res.Error != nil {
-			protocol.Log.Fatalf("ping error: %v", res.Error)
-		} else {
-			protocol.Log.Infof("ping RTT: %s", res.RTT)
-		}
-		cancel()
-		host.ConnManager().Protect(serverPeer1.ID, "proxy")
-
-		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost)
-		fmt.Printf("Proxy Address: %s\n", cfg.Proxy.Addr)
-		go func() {
-			if err := proxy.Serve(cfg.Proxy.Addr, serverPeer1.ID); err != nil {
-				protocol.Log.Fatal(err)
-			}
-		}()
-		go func() {
-			if err := proxy.ServeSsh("0.0.0.0:2222", serverPeer1.ID); err != nil {
-				protocol.Log.Fatal(err)
-			}
-		}()
-
 		for {
 			select {
 			case <-ctx.Done():
