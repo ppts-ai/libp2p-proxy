@@ -44,7 +44,7 @@ type ProxyService struct {
 func NewProxyService(ctx context.Context, h host.Host, p2pHost string) *ProxyService {
 	ps := &ProxyService{ctx, h, nil, p2pHost, ""}
 	h.SetStreamHandler(ID, ps.Handler)
-	//h.SetStreamHandler(SSH_ID, ps.Ssh_Handler)
+	h.SetStreamHandler(SSH_ID, ps.Ssh_Handler)
 	h.SetStreamHandler(PODMAN_ID, ps.Podman_Handler)
 	return ps
 }

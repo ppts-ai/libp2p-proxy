@@ -267,12 +267,6 @@ func main() {
 			}
 		}()
 
-		go func() {
-			if err := proxy.ServePodman("0.0.0.0:3333"); err != nil {
-				protocol.Log.Fatal(err)
-			}
-		}()
-
 		// Define a handler function
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			body, err := io.ReadAll(r.Body)
@@ -316,7 +310,7 @@ func main() {
 
 			res := <-ping.Ping(ctxt, host, serverPeer1.ID)
 			if res.Error != nil {
-				protocol.Log.Fatalf("ping error: %v", res.Error)
+				protocol.Log.Warnf("ping error: %v", res.Error)
 			} else {
 				protocol.Log.Infof("ping RTT: %s", res.RTT)
 			}
