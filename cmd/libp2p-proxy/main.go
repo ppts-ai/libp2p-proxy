@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -274,7 +275,14 @@ func main() {
 
 		// Define a handler function
 		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprintln(w, "Hello, World!")
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+				return
+			}
+			defer r.Body.Close() // Ensure the body is closed
+			bodyStr := string(body)
+			fmt.Fprintln(w, "Hello, World!", bodyStr)
 			serverPeer1, err := peer.AddrInfoFromString(cfg.Proxy.ServerPeer)
 			if err != nil {
 				protocol.Log.Fatal(err)
@@ -301,10 +309,10 @@ func main() {
 
 			if err := host.Connect(context.Background(), unreachable2relayinfo); err != nil {
 				log.Printf("Unexpected error here. Failed to connect unreachable1 and unreachable2: %v", err)
-				return
 			}
 
 			log.Println("Yep, that worked!")
+			proxy.SetRemotePeer(serverPeer1.ID)
 
 			res := <-ping.Ping(ctxt, host, serverPeer1.ID)
 			if res.Error != nil {
@@ -316,12 +324,14 @@ func main() {
 			host.ConnManager().Protect(serverPeer1.ID, "proxy")
 		})
 
-		// Start the HTTP server
-		fmt.Println("Starting server on :8080...")
-		err = http.ListenAndServe(":8080", nil)
-		if err != nil {
-			fmt.Println("Error starting server:", err)
-		}
+		go func() {
+			// Start the HTTP server
+			fmt.Println("Starting server on :8080...")
+			err = http.ListenAndServe(":8080", nil)
+			if err != nil {
+				fmt.Println("Error starting server:", err)
+			}
+		}()
 		for {
 			select {
 			case <-ctx.Done():

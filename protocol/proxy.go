@@ -198,3 +198,7 @@ func shouldLogError(err error) bool {
 func (p ProxyService) GetRemotePeer() peer.ID {
 	return p.remotePeer
 }
+
+func (p *ProxyService) SetRemotePeer(id peer.ID) {
+	p.remotePeer = id
+}
