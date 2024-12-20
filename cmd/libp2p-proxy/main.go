@@ -116,11 +116,11 @@ func main() {
 		libp2p.EnableRelay(),
 	}
 
-	acl, err := protocol.NewACL(cfg.ACL)
-	if err != nil {
-		protocol.Log.Fatal(err)
-	}
-	opts = append(opts, libp2p.ConnectionGater(acl))
+	//acl, err := protocol.NewACL(cfg.ACL)
+	//if err != nil {
+	//protocol.Log.Fatal(err)
+	//}
+	//opts = append(opts, libp2p.ConnectionGater(acl))
 
 	// The multiaddress string
 	multiAddrStr := "/ip4/64.176.227.5/tcp/4001/p2p/12D3KooWLzi9E1oaHLhWrgTPnPa3aUjNkM8vvC8nYZp1gk9RjTV1"
@@ -164,7 +164,7 @@ func main() {
 		}
 
 		ping.NewPingService(host)
-		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost)
+		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost, host.ID())
 
 		// Hosts that want to have messages relayed on their behalf need to reserve a slot
 		// with the circuit relay service host
@@ -226,6 +226,12 @@ func main() {
 			if err != nil {
 				protocol.Log.Fatal(err)
 			}
+
+			if host.ID() == peerID {
+				fmt.Fprintln(w, "switch off proxy")
+				proxy.SetRemotePeer(peerID)
+			}else {
+
 			serverPeer, err := ma.NewMultiaddr("/p2p/" + relay1info.ID.String() + "/p2p-circuit/p2p/" + bodyStr)
 			if err != nil {
 				http.Error(w, "Failed to create peer address", http.StatusInternalServerError)
@@ -253,8 +259,7 @@ func main() {
 			}
 
 			log.Println("Yep, that worked!")
-			proxy.SetRemotePeer(peerID)
-
+			
 			res := <-ping.Ping(ctxt, host, peerID)
 			if res.Error != nil {
 				protocol.Log.Warnf("ping error: %v", res.Error)
@@ -265,6 +270,8 @@ func main() {
 			}
 			cancel()
 			host.ConnManager().Protect(peerID, "proxy")
+			proxy.SetRemotePeer(peerID)
+			}
 		})
 
 		go func() {

@@ -40,8 +40,8 @@ type ProxyService struct {
 	remotePeer peer.ID
 }
 
-func NewProxyService(ctx context.Context, h host.Host, p2pHost string) *ProxyService {
-	ps := &ProxyService{ctx, h, nil, p2pHost, ""}
+func NewProxyService(ctx context.Context, h host.Host, p2pHost string, peerID peer.ID) *ProxyService {
+	ps := &ProxyService{ctx, h, nil, p2pHost, peerID}
 	h.SetStreamHandler(ID, ps.Handler)
 	h.SetStreamHandler(SSH_ID, ps.Ssh_Handler)
 	h.SetStreamHandler(PODMAN_ID, ps.Podman_Handler)
