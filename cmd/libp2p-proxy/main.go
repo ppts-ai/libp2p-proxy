@@ -63,12 +63,12 @@ func main() {
 	}
 
 	if *genKey {
-		privKey, peerID, err := GeneratePeerKey()
+		_, peerID, err := GeneratePeerKey()
 		if err != nil {
 			protocol.Log.Fatal(err)
 		}
-		fmt.Printf("Private Peer Key: %s\n", privKey)
-		fmt.Printf("Public Peer ID: %s\n", peerID)
+		//fmt.Printf("Private Peer Key: %s\n", privKey)
+		fmt.Printf("%s\n", peerID)
 		os.Exit(0)
 	}
 
@@ -114,7 +114,6 @@ func main() {
 		libp2p.Identity(privk),
 		libp2p.UserAgent(protocol.ServiceName),
 		libp2p.EnableRelay(),
-		libp2p.NoListenAddrs,
 	}
 
 	acl, err := protocol.NewACL(cfg.ACL)
@@ -138,7 +137,7 @@ func main() {
 		log.Fatalf("Failed to extract AddrInfo: %v", err)
 	}
 
-	if cfg.Proxy == nil {
+
 
 		if cfg.Network.EnableNAT {
 			opts = append(opts,
@@ -151,31 +150,6 @@ func main() {
 		if err != nil {
 			protocol.Log.Fatal(err)
 		}
-
-		// Register a connection notification handler
-		host.Network().Notify(&network.NotifyBundle{
-			ConnectedF: func(n network.Network, conn network.Conn) {
-				addr := conn.RemoteMultiaddr()
-
-				if addr.String() == "" {
-					fmt.Println("No multiaddr found for connection.")
-					return
-				}
-
-				// Check if the connection is using a relay
-				if isRelayConnection(addr.String()) {
-					fmt.Printf("Connected via relay: %s\n", addr)
-				} else {
-					fmt.Printf("Direct P2P connection: %s\n", addr)
-				}
-			},
-			DisconnectedF: func(_ network.Network, conn network.Conn) {
-				if conn.RemotePeer() == relay1info.ID {
-					fmt.Println("Lost connection to relay. Reconnecting...")
-					go reconnectToRelay(host, relay1info, relay1info.ID)
-				}
-			},
-		})
 
 		// Connect both unreachable1 and unreachable2 to relay1
 		if err := host.Connect(ctx, *relay1info); err != nil {
@@ -202,36 +176,6 @@ func main() {
 			return
 		}
 
-		if cfg.ServePath != "" {
-			ss := newStatic(cfg.ServePath)
-			fmt.Printf("Serve HTTP static: %s\n", ss)
-			if err := proxy.ServeHTTP(ss, nil); err != nil {
-				protocol.Log.Fatal(err)
-			}
-		} else {
-			if err := proxy.Wait(nil); err != nil {
-				protocol.Log.Fatal(err)
-			}
-		}
-
-	} else {
-
-		host, err := libp2p.New(opts...)
-		if err != nil {
-			protocol.Log.Fatal(err)
-		}
-
-		// Connect both unreachable1 and unreachable2 to relay1
-		if err := host.Connect(context.Background(), *relay1info); err != nil {
-			log.Printf("Failed to connect unreachable1 and relay1: %v", err)
-			return
-		}
-
-		fmt.Printf("Peer ID: %s\n", host.ID())
-
-		proxy := protocol.NewProxyService(ctx, host, cfg.P2PHost)
-		fmt.Printf("Proxy Address: %s\n", cfg.Proxy.Addr)
-
 		// Register a connection notification handler
 		host.Network().Notify(&network.NotifyBundle{
 			ConnectedF: func(n network.Network, conn network.Conn) {
@@ -256,8 +200,9 @@ func main() {
 				}
 			},
 		})
+
 		go func() {
-			if err := proxy.Serve(cfg.Proxy.Addr); err != nil {
+			if err := proxy.Serve("0.0.0.0:1082"); err != nil {
 				protocol.Log.Fatal(err)
 			}
 		}()
@@ -283,7 +228,7 @@ func main() {
 			}
 			serverPeer, err := ma.NewMultiaddr("/p2p/" + relay1info.ID.String() + "/p2p-circuit/p2p/" + bodyStr)
 			if err != nil {
-				log.Println(err)
+				http.Error(w, "Failed to create peer address", http.StatusInternalServerError)
 				return
 			} else {
 				log.Println(serverPeer)
@@ -303,6 +248,8 @@ func main() {
 
 			if err := host.Connect(context.Background(), unreachable2relayinfo); err != nil {
 				log.Printf("Unexpected error here. Failed to connect unreachable1 and unreachable2: %v", err)
+				http.Error(w, "Failed to connect to remote peer", http.StatusInternalServerError)
+				return
 			}
 
 			log.Println("Yep, that worked!")
@@ -311,6 +258,8 @@ func main() {
 			res := <-ping.Ping(ctxt, host, peerID)
 			if res.Error != nil {
 				protocol.Log.Warnf("ping error: %v", res.Error)
+				http.Error(w, "ping error", http.StatusInternalServerError)
+				return
 			} else {
 				protocol.Log.Infof("ping RTT: %s", res.RTT)
 			}
@@ -347,7 +296,6 @@ func main() {
 				time.Sleep(30 * time.Second)
 			}
 		}
-	}
 }
 
 func ContextWithSignal(ctx context.Context) context.Context {
