@@ -107,7 +107,7 @@ func main() {
 	ctx := ContextWithSignal(context.Background())
 	privk, err := ReadPeerKey(cfg.PeerKey)
 	if err != nil {
-		protocol.Log.Fatal(err)
+		fmt.Println("Error retrieving secret:", err)
 	}
 
 	var opts []libp2p.Option = []libp2p.Option{
@@ -276,12 +276,12 @@ func main() {
 			}
 			defer r.Body.Close() // Ensure the body is closed
 			bodyStr := string(body)
-			fmt.Fprintln(w, "Hello, World!", bodyStr)
-			serverPeer1, err := peer.AddrInfoFromString(cfg.Proxy.ServerPeer)
+			//fmt.Fprintln(w, "Hello, World!", bodyStr)
+			peerID,err := peer.Decode(bodyStr)
 			if err != nil {
 				protocol.Log.Fatal(err)
 			}
-			serverPeer, err := ma.NewMultiaddr("/p2p/" + relay1info.ID.String() + "/p2p-circuit/p2p/" + serverPeer1.ID.String())
+			serverPeer, err := ma.NewMultiaddr("/p2p/" + relay1info.ID.String() + "/p2p-circuit/p2p/" + bodyStr)
 			if err != nil {
 				log.Println(err)
 				return
@@ -289,13 +289,13 @@ func main() {
 				log.Println(serverPeer)
 			}
 
-			host.Network().(*swarm.Swarm).Backoff().Clear(serverPeer1.ID)
+			host.Network().(*swarm.Swarm).Backoff().Clear(peerID)
 
 			log.Println("Now let's attempt to connect the hosts via the relay node")
 
 			// Open a connection to the previously unreachable host via the relay address
 			unreachable2relayinfo := peer.AddrInfo{
-				ID:    serverPeer1.ID,
+				ID:    peerID,
 				Addrs: []ma.Multiaddr{serverPeer},
 			}
 			// host.Peerstore().AddAddrs(serverPeer.ID, serverPeer.Addrs, peerstore.PermanentAddrTTL)
@@ -306,16 +306,16 @@ func main() {
 			}
 
 			log.Println("Yep, that worked!")
-			proxy.SetRemotePeer(serverPeer1.ID)
+			proxy.SetRemotePeer(peerID)
 
-			res := <-ping.Ping(ctxt, host, serverPeer1.ID)
+			res := <-ping.Ping(ctxt, host, peerID)
 			if res.Error != nil {
 				protocol.Log.Warnf("ping error: %v", res.Error)
 			} else {
 				protocol.Log.Infof("ping RTT: %s", res.RTT)
 			}
 			cancel()
-			host.ConnManager().Protect(serverPeer1.ID, "proxy")
+			host.ConnManager().Protect(peerID, "proxy")
 		})
 
 		go func() {

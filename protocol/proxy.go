@@ -28,7 +28,6 @@ const (
 	SSH_ID           protocol.ID = "/p2pdao/libp2p-ssh/1.0.0"
 	PODMAN_ID        protocol.ID = "/p2pdao/libp2p-podman/1.0.0"
 	ServiceName      string      = "p2pdao.libp2p-proxy"
-	sshServerAddress             = "127.0.0.1:22" // Address of the real SSH server
 )
 
 var Log = logging.Logger("libp2p-proxy")
@@ -86,8 +85,9 @@ func (p *ProxyService) Handler(s network.Stream) {
 func (p *ProxyService) Ssh_Handler(stream network.Stream) {
 	defer stream.Close()
 
-	// Connect to the real SSH server
-	sshConn, err := net.Dial("tcp", sshServerAddress)
+	// run podman command to get podman ssh port
+	port, err := getPodmanMachineSSHDetails()
+	sshConn, err := net.Dial("tcp", "127.0.0.1:" + port)
 	if err != nil {
 		log.Printf("Failed to connect to SSH server: %v", err)
 		return
@@ -97,6 +97,23 @@ func (p *ProxyService) Ssh_Handler(stream network.Stream) {
 	// Bidirectional copy between libp2p stream and SSH server
 	go io.Copy(sshConn, stream)
 	io.Copy(stream, sshConn)
+}
+
+func getPodmanMachineSSHDetails() (string, error) {
+	cmd := exec.Command("podman", "machine", "inspect", "--format", "{{.SSHConfig.Port}}")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+
+	err := cmd.Run()
+	if err != nil {
+		return "", fmt.Errorf("failed to run podman machine inspect: %v, output: %s", err, out.String())
+	}
+
+	output := strings.TrimSpace(out.String())
+	
+
+	return output, nil
 }
 
 func (p *ProxyService) Podman_Handler(stream network.Stream) {
