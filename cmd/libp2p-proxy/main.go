@@ -106,6 +106,13 @@ func main() {
 
 	logrus.Infoln("Connected to Service Peers")
 
+	// Join the chat room
+	chatapp, _ := p2p.JoinChatRoom(p2phost, "jason", "test")
+	logrus.Infof("Joined the '%s' chatroom as '%s'", chatapp.RoomName, chatapp.UserName)
+
+	// Wait for network setup to complete
+	time.Sleep(time.Second * 5)
+
 	if cfg.PeerKey == "" {
 		cfg.PeerKey, _, _ = GeneratePeerKey()
 	}
