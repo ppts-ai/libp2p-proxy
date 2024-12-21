@@ -113,6 +113,11 @@ func main() {
 	// Wait for network setup to complete
 	time.Sleep(time.Second * 5)
 
+	// Create the Chat UI
+	ui := p2p.NewUI(chatapp)
+	// Start the UI system
+	ui.Run()
+
 	if cfg.PeerKey == "" {
 		cfg.PeerKey, _, _ = GeneratePeerKey()
 	}
